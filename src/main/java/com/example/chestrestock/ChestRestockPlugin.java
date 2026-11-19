@@ -48,7 +48,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
     }
 
     private final Map<String, RegisteredChest> registeredChests = new HashMap<>();
-    // Maps Rabbit UUID -> BlockDisplay UUID
     private final Map<UUID, UUID> activeMimics = new HashMap<>();
 
     private NamespacedKey keyMimic;
@@ -69,7 +68,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
     @Override
     public void onDisable() {
         saveChestsToConfig();
-        // Clean up active mimics
         for (Map.Entry<UUID, UUID> entry : activeMimics.entrySet()) {
             Entity brain = Bukkit.getEntity(entry.getKey());
             Entity display = Bukkit.getEntity(entry.getValue());
@@ -139,7 +137,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
                         b.setType(Material.CHEST);
                     }
 
-                    // 10% chance to arm as a Mimic
                     if (ThreadLocalRandom.current().nextDouble() < 0.10) {
                         rc.armedMimic = true;
                         mimicCount++;
@@ -181,7 +178,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
 
         List<ItemStack> pool = (tier == ChestTier.RARE) ? getBossLootPool() : getTraderTradeLootPool();
 
-        // Pick 2 random items and place them in random slots
         for (int i = 0; i < 2; i++) {
             ItemStack item = pool.get(ThreadLocalRandom.current().nextInt(pool.size())).clone();
             int slot = ThreadLocalRandom.current().nextInt(inv.getSize());
@@ -189,7 +185,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
         }
     }
 
-    // Items needed to trade with the WaveDungeon Quartermaster trader
     private List<ItemStack> getTraderTradeLootPool() {
         return Arrays.asList(
                 new ItemStack(Material.EMERALD, ThreadLocalRandom.current().nextInt(2, 5)),
@@ -200,7 +195,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
         );
     }
 
-    // WaveDungeon Boss loot pool for Rare chests
     private List<ItemStack> getBossLootPool() {
         return Arrays.asList(
                 new ItemStack(Material.IRON_INGOT, ThreadLocalRandom.current().nextInt(1, 4)),
@@ -221,7 +215,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
         RegisteredChest rc = registeredChests.get(key);
         if (rc == null || !rc.armedMimic) return;
 
-        // Trigger the Mimic ambush!
         event.setCancelled(true);
         rc.armedMimic = false;
 
@@ -235,7 +228,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
         World w = loc.getWorld();
         if (w == null) return;
 
-        // Killer Rabbit AI brain (chases players, hops aggressively, never goes through walls)
         Rabbit brain = (Rabbit) w.spawnEntity(loc, EntityType.RABBIT);
         brain.setRabbitType(Rabbit.Type.THE_KILLER_BUNNY);
         brain.setInvisible(true);
@@ -244,7 +236,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
         brain.setCustomNameVisible(true);
         brain.getPersistentDataContainer().set(keyMimic, PersistentDataType.BYTE, (byte) 1);
 
-        // 20 hearts = 40.0 HP, 5.0 damage per attack
         AttributeInstance maxHp = brain.getAttribute(Attribute.MAX_HEALTH);
         if (maxHp != null) maxHp.setBaseValue(40.0);
         brain.setHealth(40.0);
@@ -256,7 +247,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
             brain.setTarget(target);
         }
 
-        // Visual Chest BlockDisplay centered on the rabbit's hitbox
         BlockDisplay display = (BlockDisplay) w.spawnEntity(loc, EntityType.BLOCK_DISPLAY);
         display.setBlock(chestData);
         display.setTransformation(new Transformation(
@@ -276,22 +266,20 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
         }
     }
 
-    // Keep the moving chest BlockDisplay locked onto the Killer Rabbit brain every tick
     private void startMimicSyncTask() {
         new BukkitRunnable() {
             @Override
             public void run() {
                 if (activeMimics.isEmpty()) return;
 
-                Iterator> it = activeMimics.entrySet().iterator();
-                while (it.hasNext()) {
-                    Map.Entry<UUID, UUID> entry = it.next();
+                List<UUID> toRemove = new ArrayList<>();
+                for (Map.Entry<UUID, UUID> entry : activeMimics.entrySet()) {
                     Entity brain = Bukkit.getEntity(entry.getKey());
                     Entity display = Bukkit.getEntity(entry.getValue());
 
                     if (brain == null || !brain.isValid() || brain.isDead()) {
                         if (display != null && display.isValid()) display.remove();
-                        it.remove();
+                        toRemove.add(entry.getKey());
                         continue;
                     }
 
@@ -301,13 +289,15 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
                         display.teleport(syncLoc);
                     }
                 }
+                for (UUID deadId : toRemove) {
+                    activeMimics.remove(deadId);
+                }
             }
         }.runTaskTimer(this, 1L, 1L);
     }
 
     @EventHandler
     public void onMimicDamage(EntityDamageByEntityEvent event) {
-        // Ensure exact 5.0 damage per Mimic attack regardless of difficulty scaling
         if (event.getDamager() instanceof Rabbit rabbit
                 && rabbit.getPersistentDataContainer().has(keyMimic, PersistentDataType.BYTE)) {
             event.setDamage(5.0);
@@ -321,7 +311,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
         if (!rabbit.getPersistentDataContainer().has(keyMimic, PersistentDataType.BYTE)) return;
 
         event.getDrops().clear();
-        // Drop rare boss loot when a Mimic is defeated!
         List<ItemStack> bossPool = getBossLootPool();
         event.getDrops().add(bossPool.get(ThreadLocalRandom.current().nextInt(bossPool.size())).clone());
         event.getDrops().add(new ItemStack(Material.EMERALD, 3));
@@ -333,8 +322,6 @@ public class ChestRestockPlugin extends JavaPlugin implements BasicCommand, List
         }
         rabbit.getWorld().playSound(rabbit.getLocation(), Sound.ENTITY_ITEM_BREAK, 1.2f, 0.7f);
     }
-
-    // --- Persistence Helpers ---
 
     private void saveChestsToConfig() {
         getConfig().set("chests", null);
